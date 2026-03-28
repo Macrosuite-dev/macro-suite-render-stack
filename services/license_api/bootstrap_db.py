@@ -10,9 +10,6 @@ from app.config import get_settings
 from app.database import normalize_database_url
 
 
-EXPECTED_TABLES = {"licenses", "activations", "audit_logs"}
-
-
 def run_alembic(*args: str) -> None:
     command = ["alembic", *args]
     logging.info("running %s", " ".join(command))
@@ -30,24 +27,15 @@ def main() -> int:
         engine.dispose()
 
     has_alembic_version = "alembic_version" in tables
-    existing_expected = EXPECTED_TABLES & tables
-
     if has_alembic_version:
         logging.info("alembic version table detected; applying migrations")
         run_alembic("upgrade", "head")
         return 0
 
-    if EXPECTED_TABLES.issubset(tables):
-        logging.warning("legacy schema detected without alembic version; stamping current revision")
-        run_alembic("stamp", "head")
-        return 0
-
-    if existing_expected:
-        missing = ", ".join(sorted(EXPECTED_TABLES - tables))
-        logging.error("partial legacy schema detected without alembic version; missing tables: %s", missing)
-        return 1
-
-    logging.info("no existing schema detected; applying migrations")
+    if tables:
+        logging.warning("legacy schema detected without alembic version; applying idempotent baseline migration")
+    else:
+        logging.info("no existing schema detected; applying migrations")
     run_alembic("upgrade", "head")
     return 0
 
