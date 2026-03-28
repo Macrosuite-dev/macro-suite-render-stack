@@ -145,6 +145,18 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("license_id", "device_id", name="uq_activations_license_device"),
         )
+    else:
+        _ensure_column(bind, "activations", sa.Column("device_id", sa.String(length=128), nullable=False))
+        _ensure_column(bind, "activations", sa.Column("device_name", sa.String(length=255), nullable=False))
+        _ensure_column(bind, "activations", sa.Column("device_fingerprint", sa.String(length=64), nullable=True))
+        _ensure_column(bind, "activations", sa.Column("ip_address", sa.String(length=64), nullable=True))
+        _ensure_column(
+            bind,
+            "activations",
+            sa.Column("activated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        )
+        _ensure_column(bind, "activations", sa.Column("last_validated_at", sa.DateTime(timezone=True), nullable=True))
+        _ensure_column(bind, "activations", sa.Column("last_heartbeat_at", sa.DateTime(timezone=True), nullable=True))
     if not _has_index(bind, "activations", "ix_activations_device_id"):
         op.create_index("ix_activations_device_id", "activations", ["device_id"], unique=False)
     if not _has_index(bind, "activations", "ix_activations_license_id"):
