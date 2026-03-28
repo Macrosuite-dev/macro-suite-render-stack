@@ -18,6 +18,15 @@ def _has_index(bind, table_name: str, index_name: str) -> bool:
     return index_name in {item["name"] for item in sa.inspect(bind).get_indexes(table_name)}
 
 
+def _has_column(bind, table_name: str, column_name: str) -> bool:
+    return column_name in {item["name"] for item in sa.inspect(bind).get_columns(table_name)}
+
+
+def _ensure_column(bind, table_name: str, column: sa.Column) -> None:
+    if not _has_column(bind, table_name, column.name):
+        op.add_column(table_name, column)
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -42,6 +51,33 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("license_key_hash"),
             sa.UniqueConstraint("license_key_plain"),
+        )
+    else:
+        _ensure_column(bind, "licenses", sa.Column("customer_name", sa.String(length=255), nullable=True))
+        _ensure_column(bind, "licenses", sa.Column("customer_email", sa.String(length=255), nullable=True))
+        _ensure_column(bind, "licenses", sa.Column("notes", sa.Text(), nullable=True))
+        _ensure_column(
+            bind,
+            "licenses",
+            sa.Column("status", sa.String(length=20), nullable=False, server_default="active"),
+        )
+        _ensure_column(
+            bind,
+            "licenses",
+            sa.Column("max_devices", sa.Integer(), nullable=False, server_default="1"),
+        )
+        _ensure_column(bind, "licenses", sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True))
+        _ensure_column(bind, "licenses", sa.Column("disabled_reason", sa.String(length=255), nullable=True))
+        _ensure_column(bind, "licenses", sa.Column("banned_reason", sa.String(length=255), nullable=True))
+        _ensure_column(
+            bind,
+            "licenses",
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        )
+        _ensure_column(
+            bind,
+            "licenses",
+            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         )
     if not _has_index(bind, "licenses", "ix_licenses_customer_name"):
         op.create_index("ix_licenses_customer_name", "licenses", ["customer_name"], unique=False)
