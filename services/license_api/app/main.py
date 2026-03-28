@@ -39,6 +39,7 @@ from .security import (
     ActivationTokenError,
     build_activation_token,
     decode_activation_token,
+    ensure_utc,
     generate_license_key,
     hash_license_key,
     normalize_license_key,
@@ -94,7 +95,7 @@ def _license_envelope(license_obj: License) -> LicenseEnvelope:
         id=license_obj.id,
         status=current_license_state(license_obj),
         product=license_obj.product,
-        expires_at=license_obj.expires_at,
+        expires_at=ensure_utc(license_obj.expires_at),
         max_devices=license_obj.max_devices,
     )
 
@@ -412,7 +413,7 @@ def generate_license(
             id=license_obj.id,
             license_key=plain_key,
             status=license_obj.status,
-            expires_at=license_obj.expires_at,
+            expires_at=ensure_utc(license_obj.expires_at),
             max_devices=license_obj.max_devices,
             customer_name=license_obj.customer_name,
         )

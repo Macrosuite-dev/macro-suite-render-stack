@@ -86,7 +86,7 @@ def serialize_license_summary(license_obj: License) -> LicenseSummary:
         computed_status=current_license_state(license_obj),
         max_devices=license_obj.max_devices,
         activation_count=len(license_obj.activations),
-        expires_at=license_obj.expires_at,
+        expires_at=ensure_utc(license_obj.expires_at),
         created_at=license_obj.created_at,
         disabled_reason=license_obj.disabled_reason,
         banned_reason=license_obj.banned_reason,

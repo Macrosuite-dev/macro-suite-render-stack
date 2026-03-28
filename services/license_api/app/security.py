@@ -4,7 +4,8 @@ import hashlib
 import hmac
 import re
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import jwt
 
@@ -13,6 +14,7 @@ from .config import get_settings
 
 LICENSE_KEY_PATTERN = re.compile(r"^[A-Z0-9]{4}(-[A-Z0-9]{4}){3}$")
 LICENSE_KEY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
 
 
 class ActivationTokenError(ValueError):
@@ -23,9 +25,14 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def ensure_utc(value: datetime | None) -> datetime | None:
+def ensure_utc(value: datetime | date | None) -> datetime | None:
     if value is None:
         return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    value = datetime.combine(value, time.max).replace(tzinfo=PACIFIC_TZ)
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
