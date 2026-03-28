@@ -13,6 +13,8 @@ class LicenseStatus(str, enum.Enum):
     active = "active"
     disabled = "disabled"
     banned = "banned"
+    suspended = "suspended"
+    revoked = "revoked"
 
 
 class License(Base):

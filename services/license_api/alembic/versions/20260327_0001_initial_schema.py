@@ -27,6 +27,24 @@ def _ensure_column(bind, table_name: str, column: sa.Column) -> None:
         op.add_column(table_name, column)
 
 
+def _drop_legacy_status_checks(bind) -> None:
+    for item in sa.inspect(bind).get_check_constraints("licenses"):
+        name = item.get("name")
+        sqltext = str(item.get("sqltext") or "").lower()
+        if name and name != "ck_licenses_status_allowed" and "status" in sqltext:
+            op.drop_constraint(name, "licenses", type_="check")
+
+
+def _ensure_status_check(bind) -> None:
+    names = {item.get("name") for item in sa.inspect(bind).get_check_constraints("licenses")}
+    if "ck_licenses_status_allowed" not in names:
+        op.create_check_constraint(
+            "ck_licenses_status_allowed",
+            "licenses",
+            "status in ('active','disabled','banned','revoked','suspended')",
+        )
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -53,9 +71,15 @@ def upgrade() -> None:
             sa.UniqueConstraint("license_key_plain"),
         )
     else:
+        if not _has_column(bind, "licenses", "license_key_hash") and _has_column(bind, "licenses", "license_key"):
+            op.alter_column("licenses", "license_key", new_column_name="license_key_hash")
+        if not _has_column(bind, "licenses", "expires_at") and _has_column(bind, "licenses", "expiration_date"):
+            op.alter_column("licenses", "expiration_date", new_column_name="expires_at")
         _ensure_column(bind, "licenses", sa.Column("customer_name", sa.String(length=255), nullable=True))
         _ensure_column(bind, "licenses", sa.Column("customer_email", sa.String(length=255), nullable=True))
         _ensure_column(bind, "licenses", sa.Column("notes", sa.Text(), nullable=True))
+        _ensure_column(bind, "licenses", sa.Column("license_key_plain", sa.String(length=32), nullable=True))
+        _ensure_column(bind, "licenses", sa.Column("license_key_suffix", sa.String(length=4), nullable=True))
         _ensure_column(
             bind,
             "licenses",
@@ -79,6 +103,23 @@ def upgrade() -> None:
             "licenses",
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         )
+        if _has_column(bind, "licenses", "flagged_reason"):
+            op.execute(
+                sa.text(
+                    "UPDATE licenses "
+                    "SET disabled_reason = COALESCE(disabled_reason, flagged_reason) "
+                    "WHERE flagged_reason IS NOT NULL AND status = 'suspended'"
+                )
+            )
+            op.execute(
+                sa.text(
+                    "UPDATE licenses "
+                    "SET banned_reason = COALESCE(banned_reason, flagged_reason) "
+                    "WHERE flagged_reason IS NOT NULL AND status = 'revoked'"
+                )
+            )
+        _drop_legacy_status_checks(bind)
+        _ensure_status_check(bind)
     if not _has_index(bind, "licenses", "ix_licenses_customer_name"):
         op.create_index("ix_licenses_customer_name", "licenses", ["customer_name"], unique=False)
     if not _has_index(bind, "licenses", "ix_licenses_license_key_hash"):

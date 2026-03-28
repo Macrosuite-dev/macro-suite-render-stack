@@ -10,11 +10,21 @@ from ..schemas import LicenseDetail, LicenseSummary
 from ..security import ensure_utc, utc_now
 
 
+def normalized_status_value(status: str | None) -> str:
+    value = str(status or "").strip().lower()
+    if value == LicenseStatus.revoked.value:
+        return LicenseStatus.banned.value
+    if value == LicenseStatus.suspended.value:
+        return LicenseStatus.disabled.value
+    return value or LicenseStatus.active.value
+
+
 def current_license_state(license_obj: License) -> str:
     expires_at = ensure_utc(license_obj.expires_at)
-    if license_obj.status == LicenseStatus.banned.value:
+    normalized = normalized_status_value(license_obj.status)
+    if normalized == LicenseStatus.banned.value:
         return "banned"
-    if license_obj.status == LicenseStatus.disabled.value:
+    if normalized == LicenseStatus.disabled.value:
         return "disabled"
     if expires_at is not None and expires_at <= utc_now():
         return "expired"
@@ -37,6 +47,10 @@ def query_licenses(db: Session, *, search: str = "", status_filter: str = "all")
     if status_filter and status_filter != "all":
         if status_filter == "expired":
             stmt = stmt.where(License.expires_at.is_not(None), License.expires_at <= utc_now())
+        elif status_filter == LicenseStatus.disabled.value:
+            stmt = stmt.where(License.status.in_([LicenseStatus.disabled.value, LicenseStatus.suspended.value]))
+        elif status_filter == LicenseStatus.banned.value:
+            stmt = stmt.where(License.status.in_([LicenseStatus.banned.value, LicenseStatus.revoked.value]))
         else:
             stmt = stmt.where(License.status == status_filter)
 
@@ -68,7 +82,7 @@ def serialize_license_summary(license_obj: License) -> LicenseSummary:
         customer_name=license_obj.customer_name,
         customer_email=license_obj.customer_email,
         notes=license_obj.notes,
-        status=license_obj.status,
+        status=normalized_status_value(license_obj.status),
         computed_status=current_license_state(license_obj),
         max_devices=license_obj.max_devices,
         activation_count=len(license_obj.activations),
