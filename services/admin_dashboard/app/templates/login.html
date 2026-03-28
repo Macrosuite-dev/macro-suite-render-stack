@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_name }}</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body class="login-shell">
+  <main class="login-card">
+    <h1>{{ app_name }}</h1>
+    <p>Sign in to manage Render-hosted Macro Suite licenses.</p>
+    <label>
+      <span>Username</span>
+      <input id="username" type="text" autocomplete="username" value="admin">
+    </label>
+    <label>
+      <span>Password</span>
+      <input id="password" type="password" autocomplete="current-password">
+    </label>
+    <button id="loginBtn" class="primary-btn">Sign In</button>
+    <p id="status" class="status-line"></p>
+  </main>
+  <script>
+    const statusEl = document.getElementById("status");
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      statusEl.textContent = "Signing in...";
+      const response = await fetch("/session/login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          username: document.getElementById("username").value,
+          password: document.getElementById("password").value,
+        }),
+      });
+      if (response.ok) {
+        window.location.href = "/";
+        return;
+      }
+      let message = "Sign-in failed.";
+      try {
+        const payload = await response.json();
+        message = payload.detail || message;
+      } catch {}
+      statusEl.textContent = message;
+    });
+  </script>
+</body>
+</html>

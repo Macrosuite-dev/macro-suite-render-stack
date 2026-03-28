@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_name }}</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>{{ app_name }}</h1>
+      <p>Signed in as <strong>{{ user }}</strong>. Backend: <code>{{ license_api_base_url }}</code></p>
+    </div>
+    <button id="logoutBtn" class="secondary-btn">Log Out</button>
+  </header>
+
+  <main class="dashboard-grid">
+    <section class="panel">
+      <h2>Inventory</h2>
+      <div class="stat-grid">
+        <div class="stat-card"><span>Total</span><strong id="statTotal">0</strong></div>
+        <div class="stat-card"><span>Active</span><strong id="statActive">0</strong></div>
+        <div class="stat-card"><span>Disabled</span><strong id="statDisabled">0</strong></div>
+        <div class="stat-card"><span>Revoked</span><strong id="statBanned">0</strong></div>
+        <div class="stat-card"><span>Expired</span><strong id="statExpired">0</strong></div>
+      </div>
+      <div class="toolbar">
+        <input id="searchInput" type="search" placeholder="Search key, customer, notes, or device">
+        <select id="statusFilter">
+          <option value="all">All</option>
+          <option value="active">Active</option>
+          <option value="disabled">Disabled</option>
+          <option value="banned">Revoked</option>
+          <option value="expired">Expired</option>
+        </select>
+        <button id="refreshBtn" class="secondary-btn">Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Key</th>
+              <th>Customer</th>
+              <th>Status</th>
+              <th>Expires</th>
+              <th>Devices</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="licenseRows"></tbody>
+        </table>
+      </div>
+      <p id="inventoryStatus" class="status-line"></p>
+    </section>
+
+    <section class="panel">
+      <h2>Generate Key</h2>
+      <div class="form-grid">
+        <label><span>Customer Name</span><input id="customerName" type="text"></label>
+        <label><span>Customer Email</span><input id="customerEmail" type="email"></label>
+        <label><span>Duration Days</span><input id="durationDays" type="number" value="30" min="1"></label>
+        <label><span>Max Devices</span><input id="maxDevices" type="number" value="1" min="1" max="25"></label>
+        <label class="full"><span>Notes</span><textarea id="notes" rows="4"></textarea></label>
+      </div>
+      <button id="generateBtn" class="primary-btn">Generate License</button>
+      <div class="result-box">
+        <div><span>Last Key</span><code id="generatedKey">No key yet</code></div>
+        <div><span>Expiry</span><strong id="generatedExpiry">-</strong></div>
+      </div>
+      <p id="generateStatus" class="status-line"></p>
+    </section>
+
+    <section class="panel panel-wide">
+      <h2>Audit Log</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>License</th>
+              <th>Detail</th>
+            </tr>
+          </thead>
+          <tbody id="auditRows"></tbody>
+        </table>
+      </div>
+      <p id="auditStatus" class="status-line"></p>
+    </section>
+  </main>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

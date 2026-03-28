@@ -1,0 +1,13 @@
+{
+  "license_server_url": "https://macro-suite-license-api.onrender.com",
+  "sign_requests": false,
+  "client_shared_secret": null,
+  "device_hmac_key": null,
+  "request_timeout_s": 12,
+  "heartbeat_timeout_s": 8,
+  "heartbeat_interval_ms": 15000,
+  "heartbeat_max_failures": 2,
+  "offline_grace_days": 0,
+  "wake_retry_attempts": 4,
+  "wake_retry_backoff_seconds": 2
+}

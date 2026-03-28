@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+.env
+*.sqlite3
+*.db
+*.log
+release_client_state/
+_smoke_*/
