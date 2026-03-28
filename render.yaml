@@ -10,7 +10,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./services/license_api/Dockerfile
-    dockerContext: .
+    dockerContext: ./services/license_api
     healthCheckPath: /health
     envVars:
       - key: API_ENVIRONMENT
@@ -45,7 +45,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./services/admin_dashboard/Dockerfile
-    dockerContext: .
+    dockerContext: ./services/admin_dashboard
     healthCheckPath: /health
     envVars:
       - key: DASHBOARD_APP_NAME
