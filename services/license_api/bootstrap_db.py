@@ -7,6 +7,7 @@ import sys
 from sqlalchemy import create_engine, inspect
 
 from app.config import get_settings
+from app.database import normalize_database_url
 
 
 EXPECTED_TABLES = {"licenses", "activations", "audit_logs"}
@@ -21,7 +22,7 @@ def run_alembic(*args: str) -> None:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = get_settings()
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+    engine = create_engine(normalize_database_url(settings.database_url), pool_pre_ping=True)
     try:
         with engine.connect() as connection:
             tables = set(inspect(connection).get_table_names())
