@@ -1,24 +1,65 @@
+const FRIENDLY_INVENTORY_ERROR = "Unable to load inventory right now. Please refresh and try again.";
+const FRIENDLY_AUDIT_ERROR = "Unable to load audit activity right now. Please refresh and try again.";
+const FRIENDLY_DASHBOARD_ERROR = "Unable to load dashboard data right now. Please refresh and try again.";
+const FRIENDLY_UPSTREAM_WAKE = "License API is waking up. Please wait a few seconds and try again.";
+const FRIENDLY_UNEXPECTED_RESPONSE = "Unexpected dashboard response. Please refresh and try again.";
+
+function looksLikeHtml(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return text.startsWith("<!doctype html") || text.startsWith("<html") || text.includes("</html>");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function extractErrorMessage(status, payload, rawText) {
+  const detail = payload && typeof payload === "object" ? (payload.detail ?? payload) : rawText;
+  if (status === 502 || status === 503 || status === 504) {
+    return FRIENDLY_UPSTREAM_WAKE;
+  }
+  if (typeof detail === "string") {
+    if (looksLikeHtml(detail) || detail.length > 600) {
+      return status >= 500 ? FRIENDLY_DASHBOARD_ERROR : FRIENDLY_UNEXPECTED_RESPONSE;
+    }
+    return detail;
+  }
+  if (detail && typeof detail.message === "string") {
+    return detail.message;
+  }
+  return status >= 500 ? FRIENDLY_DASHBOARD_ERROR : `Request failed (${status})`;
+}
+
 async function apiFetch(path, options = {}) {
   const response = await fetch(path, {
     headers: {"Content-Type": "application/json", ...(options.headers || {})},
     ...options,
   });
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  const isJson = contentType.includes("application/json");
+  let payload = null;
+  let rawText = "";
+  if (isJson) {
     try {
-      const payload = await response.json();
-      const detail = payload.detail || payload;
-      if (typeof detail === "string") {
-        message = detail;
-      } else if (detail && typeof detail.message === "string") {
-        message = detail.message;
-      } else {
-        message = JSON.stringify(detail);
-      }
-    } catch {}
-    throw new Error(message);
+      payload = await response.json();
+    } catch {
+      throw new Error(FRIENDLY_UNEXPECTED_RESPONSE);
+    }
+  } else {
+    rawText = await response.text();
   }
-  return response.json();
+  if (!response.ok) {
+    throw new Error(extractErrorMessage(response.status, payload, rawText));
+  }
+  if (!isJson) {
+    throw new Error(FRIENDLY_UNEXPECTED_RESPONSE);
+  }
+  return payload;
 }
 
 function formatPacificDateTime(value) {
@@ -44,27 +85,45 @@ function formatPacificDateTime(value) {
 
 function statusPill(status) {
   const text = String(status || "unknown").toLowerCase();
-  return `<span class="pill ${text}">${text}</span>`;
+  const allowed = new Set(["active", "disabled", "banned", "expired", "unknown"]);
+  const safe = allowed.has(text) ? text : "unknown";
+  return `<span class="pill ${safe}">${escapeHtml(safe)}</span>`;
 }
 
 function actionButton(label, handler, licenseId, payload = {}) {
-  return `<button class="action-btn" data-handler="${handler}" data-license-id="${licenseId}" data-payload='${JSON.stringify(payload)}'>${label}</button>`;
+  return `<button class="action-btn" data-handler="${escapeHtml(handler)}" data-license-id="${escapeHtml(licenseId)}" data-payload='${escapeHtml(JSON.stringify(payload))}'>${escapeHtml(label)}</button>`;
+}
+
+function resetInventoryView(message) {
+  document.getElementById("statTotal").textContent = "0";
+  document.getElementById("statActive").textContent = "0";
+  document.getElementById("statDisabled").textContent = "0";
+  document.getElementById("statBanned").textContent = "0";
+  document.getElementById("statExpired").textContent = "0";
+  document.getElementById("licenseRows").innerHTML = `<tr><td colspan="6">${escapeHtml(message)}</td></tr>`;
+}
+
+function resetAuditView(message) {
+  document.getElementById("auditRows").innerHTML = `<tr><td colspan="5">${escapeHtml(message)}</td></tr>`;
 }
 
 function renderInventory(payload) {
-  document.getElementById("statTotal").textContent = payload.stats.total || 0;
-  document.getElementById("statActive").textContent = payload.stats.active || 0;
-  document.getElementById("statDisabled").textContent = payload.stats.disabled || 0;
-  document.getElementById("statBanned").textContent = payload.stats.banned || 0;
-  document.getElementById("statExpired").textContent = payload.stats.expired || 0;
+  if (!payload || !Array.isArray(payload.items) || !payload.stats || typeof payload.stats !== "object") {
+    throw new Error(FRIENDLY_INVENTORY_ERROR);
+  }
+  document.getElementById("statTotal").textContent = String(payload.stats.total || 0);
+  document.getElementById("statActive").textContent = String(payload.stats.active || 0);
+  document.getElementById("statDisabled").textContent = String(payload.stats.disabled || 0);
+  document.getElementById("statBanned").textContent = String(payload.stats.banned || 0);
+  document.getElementById("statExpired").textContent = String(payload.stats.expired || 0);
 
   const rows = payload.items.map((item) => `
     <tr>
-      <td><code>${item.license_key}</code></td>
-      <td>${item.customer_name || "-"}</td>
+      <td><code>${escapeHtml(item.license_key || "-")}</code></td>
+      <td>${escapeHtml(item.customer_name || "-")}</td>
       <td>${statusPill(item.computed_status)}</td>
       <td>${formatPacificDateTime(item.expires_at)}</td>
-      <td>${item.activation_count} / ${item.max_devices}</td>
+      <td>${escapeHtml(`${item.activation_count} / ${item.max_devices}`)}</td>
       <td>
         <div class="action-row">
           ${actionButton("Extend 30d", "extend", item.id, {extra_days: 30})}
@@ -80,13 +139,16 @@ function renderInventory(payload) {
 }
 
 function renderAudit(payload) {
+  if (!payload || !Array.isArray(payload.items)) {
+    throw new Error(FRIENDLY_AUDIT_ERROR);
+  }
   const rows = payload.items.map((item) => `
     <tr>
       <td>${formatPacificDateTime(item.created_at)}</td>
-      <td>${item.actor}</td>
-      <td>${item.action}</td>
-      <td>${item.license_key_suffix || "-"}</td>
-      <td>${item.detail || "-"}</td>
+      <td>${escapeHtml(item.actor || "-")}</td>
+      <td>${escapeHtml(item.action || "-")}</td>
+      <td>${escapeHtml(item.license_key_suffix || "-")}</td>
+      <td>${escapeHtml(item.detail || "-")}</td>
     </tr>
   `).join("");
   document.getElementById("auditRows").innerHTML = rows || '<tr><td colspan="5">No audit logs yet.</td></tr>';
@@ -135,15 +197,27 @@ async function runLicenseAction(handler, licenseId, payload) {
 }
 
 document.getElementById("refreshBtn").addEventListener("click", () => {
-  loadInventory().catch((err) => { document.getElementById("inventoryStatus").textContent = err.message; });
+  loadInventory().catch((err) => {
+    const message = !err?.message || err.message === FRIENDLY_DASHBOARD_ERROR ? FRIENDLY_INVENTORY_ERROR : err.message;
+    resetInventoryView(message);
+    document.getElementById("inventoryStatus").textContent = message;
+  });
 });
 
 document.getElementById("searchInput").addEventListener("input", () => {
-  loadInventory().catch((err) => { document.getElementById("inventoryStatus").textContent = err.message; });
+  loadInventory().catch((err) => {
+    const message = !err?.message || err.message === FRIENDLY_DASHBOARD_ERROR ? FRIENDLY_INVENTORY_ERROR : err.message;
+    resetInventoryView(message);
+    document.getElementById("inventoryStatus").textContent = message;
+  });
 });
 
 document.getElementById("statusFilter").addEventListener("change", () => {
-  loadInventory().catch((err) => { document.getElementById("inventoryStatus").textContent = err.message; });
+  loadInventory().catch((err) => {
+    const message = !err?.message || err.message === FRIENDLY_DASHBOARD_ERROR ? FRIENDLY_INVENTORY_ERROR : err.message;
+    resetInventoryView(message);
+    document.getElementById("inventoryStatus").textContent = message;
+  });
 });
 
 document.getElementById("generateBtn").addEventListener("click", () => {
@@ -157,7 +231,9 @@ document.getElementById("licenseRows").addEventListener("click", (event) => {
   }
   const payload = JSON.parse(target.dataset.payload || "{}");
   runLicenseAction(target.dataset.handler, target.dataset.licenseId, payload).catch((err) => {
-    document.getElementById("inventoryStatus").textContent = err.message;
+    const message = !err?.message || err.message === FRIENDLY_DASHBOARD_ERROR ? FRIENDLY_INVENTORY_ERROR : err.message;
+    resetInventoryView(message);
+    document.getElementById("inventoryStatus").textContent = message;
   });
 });
 
@@ -166,5 +242,13 @@ document.getElementById("logoutBtn").addEventListener("click", async () => {
   window.location.href = "/login";
 });
 
-loadInventory().catch((err) => { document.getElementById("inventoryStatus").textContent = err.message; });
-loadAudit().catch((err) => { document.getElementById("auditStatus").textContent = err.message; });
+loadInventory().catch((err) => {
+  const message = !err?.message || err.message === FRIENDLY_DASHBOARD_ERROR ? FRIENDLY_INVENTORY_ERROR : err.message;
+  resetInventoryView(message);
+  document.getElementById("inventoryStatus").textContent = message;
+});
+loadAudit().catch((err) => {
+  const message = !err?.message || err.message === FRIENDLY_DASHBOARD_ERROR ? FRIENDLY_AUDIT_ERROR : err.message;
+  resetAuditView(message);
+  document.getElementById("auditStatus").textContent = message;
+});

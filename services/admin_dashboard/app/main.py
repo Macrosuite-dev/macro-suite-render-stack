@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
 from pathlib import Path
@@ -30,6 +31,7 @@ else:
 
 logger = logging.getLogger("macro_suite.admin_dashboard")
 logger.setLevel(log_level)
+RETRYABLE_UPSTREAM_STATUS_CODES = {502, 503, 504}
 
 app = FastAPI(title=settings.dashboard_app_name, version="1.0.0")
 app.add_middleware(
@@ -57,6 +59,36 @@ def require_user(request: Request) -> str:
     return user
 
 
+def _looks_like_html(text: str | None) -> bool:
+    lowered = str(text or "").strip().lower()
+    return lowered.startswith("<!doctype html") or lowered.startswith("<html") or "</html>" in lowered
+
+
+def _friendly_upstream_message(status_code: int) -> str:
+    if status_code in RETRYABLE_UPSTREAM_STATUS_CODES:
+        return "License API is waking up. Please wait a few seconds and try again."
+    return "Unable to reach the license API right now. Please refresh and try again."
+
+
+def _extract_upstream_detail(response: httpx.Response) -> str:
+    content_type = str(response.headers.get("content-type", "")).lower()
+    if "application/json" in content_type:
+        try:
+            payload = response.json()
+        except Exception:
+            payload = None
+        detail = payload.get("detail", payload) if isinstance(payload, dict) else payload
+        if isinstance(detail, dict):
+            message = str(detail.get("message", "")).strip()
+            if message:
+                return message
+        if isinstance(detail, str):
+            if _looks_like_html(detail):
+                return _friendly_upstream_message(response.status_code)
+            return detail.strip() or _friendly_upstream_message(response.status_code)
+    return _friendly_upstream_message(response.status_code)
+
+
 async def call_api(request: Request, method: str, path: str, *, json_body: dict | None = None, params: dict | None = None) -> dict:
     user = require_user(request)
     headers = {
@@ -64,24 +96,51 @@ async def call_api(request: Request, method: str, path: str, *, json_body: dict 
         "X-Admin-Actor": user,
     }
     url = f"{settings.license_api_base_url.rstrip('/')}{path}"
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.request(method, url, headers=headers, json=json_body, params=params)
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail="License API is unreachable. Check the API deployment and retry.") from exc
-    if response.status_code >= 400:
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {"detail": response.text or "Upstream request failed."}
-        detail = payload.get("detail", payload)
-        raise HTTPException(status_code=response.status_code, detail=detail)
-    if response.status_code == 204:
-        return {}
-    try:
-        return response.json()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Invalid API response: {exc}") from exc
+    attempts = 3 if method.upper() == "GET" else 1
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
+        for attempt in range(1, attempts + 1):
+            try:
+                response = await client.request(method, url, headers=headers, json=json_body, params=params)
+            except httpx.RequestError as exc:
+                logger.warning("dashboard upstream request failed method=%s path=%s attempt=%s error=%s", method, path, attempt, exc)
+                if attempt < attempts:
+                    await asyncio.sleep(attempt * 2)
+                    continue
+                raise HTTPException(status_code=502, detail=_friendly_upstream_message(502)) from exc
+
+            if response.status_code in RETRYABLE_UPSTREAM_STATUS_CODES and attempt < attempts:
+                logger.warning(
+                    "dashboard upstream retry method=%s path=%s attempt=%s status=%s",
+                    method,
+                    path,
+                    attempt,
+                    response.status_code,
+                )
+                await asyncio.sleep(attempt * 2)
+                continue
+
+            if response.status_code >= 400:
+                raise HTTPException(status_code=response.status_code, detail=_extract_upstream_detail(response))
+
+            if response.status_code == 204:
+                return {}
+
+            content_type = str(response.headers.get("content-type", "")).lower()
+            if "application/json" not in content_type:
+                logger.warning(
+                    "dashboard upstream returned non-json method=%s path=%s status=%s content_type=%s",
+                    method,
+                    path,
+                    response.status_code,
+                    content_type or "(missing)",
+                )
+                raise HTTPException(status_code=502, detail="Invalid response from the license API. Please refresh and try again.")
+            try:
+                return response.json()
+            except Exception as exc:
+                logger.warning("dashboard upstream json decode failed method=%s path=%s error=%s", method, path, exc)
+                raise HTTPException(status_code=502, detail="Invalid response from the license API. Please refresh and try again.") from exc
+    raise HTTPException(status_code=502, detail=_friendly_upstream_message(502))
 
 
 @app.on_event("startup")
